@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SucoFunk Looper Workflow Simulator</title>
+  <style>
+    :root { --pad: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; }
+    header { padding: var(--pad); border-bottom: 1px solid #ddd; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;}
+    header h1 { font-size: 16px; margin: 0; }
+    header .hint { color: #555; font-size: 13px; }
+    main { display: grid; grid-template-columns: 360px 1fr; gap: 0; min-height: calc(100vh - 56px); }
+    aside { border-right: 1px solid #ddd; padding: var(--pad); }
+    section { padding: var(--pad); }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; margin: 8px 0; }
+    label { font-size: 13px; color: #222; }
+    input[type="number"], select { width: 120px; padding: 6px 8px; }
+    input[type="checkbox"] { transform: scale(1.1); }
+    button { padding: 8px 10px; border: 1px solid #999; background: #fff; border-radius: 8px; cursor: pointer; }
+    button.primary { border-color: #333; font-weight: 600; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              background: #f7f7f7; border-radius: 10px; padding: 10px; border: 1px solid #e0e0e0; }
+    .timeline { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+    .bar { height: 18px; border-radius: 9px; background: #eee; position: relative; overflow: hidden; }
+    .bar > .fill { height: 100%; width: 0%; background: #cfcfcf; transition: width 80ms linear; }
+    .markers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+    .marker { border: 1px solid #ddd; border-radius: 10px; padding: 10px; }
+    .marker b { display: block; margin-bottom: 6px; }
+    .pill { display: inline-block; padding: 2px 8px; border: 1px solid #ccc; border-radius: 999px; font-size: 12px; color: #333; background: #fafafa; }
+    .log { max-height: 260px; overflow: auto; background: #0b0b0b; color: #d7ffd7; border-radius: 10px; padding: 10px; font-size: 12px; }
+    .log div { white-space: pre-wrap; }
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Looper Workflow Simulator</h1>
+  <div class="hint">preroll → record → post-roll → commit/redo → repeat/done</div>
+</header>
+
+<main>
+  <aside>
+    <div class="card">
+      <div class="row">
+        <label for="bpm">Tempo (BPM)</label>
+        <input id="bpm" type="number" min="30" max="300" step="1" value="120"/>
+      </div>
+      <div class="row">
+        <label for="beats">Loop length (beats)</label>
+        <input id="beats" type="number" min="1" max="512" step="1" value="16"/>
+      </div>
+      <div class="row">
+        <label for="preroll">Preroll (clicks)</label>
+        <input id="preroll" type="number" min="0" max="32" step="1" value="4"/>
+      </div>
+      <div class="row">
+        <label for="postroll">Post-roll (clicks)</label>
+        <input id="postroll" type="number" min="0" max="32" step="1" value="2"/>
+      </div>
+
+      <div class="row">
+        <label for="quantize">Quantize end of record to beat?</label>
+        <input id="quantize" type="checkbox" checked/>
+      </div>
+
+      <div class="row">
+        <label for="routeClick">Record excludes click?</label>
+        <input id="routeClick" type="checkbox" checked/>
+      </div>
+
+      <div class="row">
+        <label for="mode">Commit model</label>
+        <select id="mode">
+          <option value="sum">Sum (loop = loop + take)</option>
+          <option value="feedback">Feedback (loop = loop*keep + take*add)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="keep">Keep (old loop multiplier)</label>
+        <input id="keep" type="number" min="0" max="1.5" step="0.01" value="1.00"/>
+      </div>
+      <div class="row">
+        <label for="add">Add (new take multiplier)</label>
+        <input id="add" type="number" min="0" max="1.5" step="0.01" value="1.00"/>
+      </div>
+
+      <div class="row">
+        <label for="undo">Enable Undo (single-level)</label>
+        <input id="undo" type="checkbox"/>
+      </div>
+
+      <div class="row">
+        <label for="autoRepeat">Auto-repeat after Commit</label>
+        <input id="autoRepeat" type="checkbox" checked/>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="btnrow">
+        <button id="start" class="primary">Start Preroll</button>
+        <button id="commit" disabled>Commit</button>
+        <button id="redo" disabled>Redo</button>
+        <button id="stop">Stop / Reset</button>
+      </div>
+      <div class="row">
+        <label for="audio">Metronome audio</label>
+        <input id="audio" type="checkbox" checked/>
+      </div>
+      <div class="row">
+        <label for="vol">Click volume</label>
+        <input id="vol" type="number" min="0" max="1" step="0.05" value="0.35"/>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="status" id="status"></div>
+    </div>
+  </aside>
+
+  <section>
+    <div class="timeline card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div><span class="pill" id="pillState">IDLE</span></div>
+        <div class="pill" id="pillTime">00:00.000</div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="bar"><div class="fill" id="progressFill"></div></div>
+      </div>
+
+      <div class="markers">
+        <div class="marker">
+          <b>Preroll</b>
+          <div id="mPreroll"></div>
+        </div>
+        <div class="marker">
+          <b>Record</b>
+          <div id="mRecord"></div>
+        </div>
+        <div class="marker">
+          <b>Post-roll</b>
+          <div id="mPostroll"></div>
+        </div>
+        <div class="marker">
+          <b>Commit / Redo</b>
+          <div id="mDecision"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <b>Event log</b>
+        <button id="clearLog">Clear log</button>
+      </div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="card">
+      <b>Feature wishlist (toggle ideas)</b>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(240px,1fr));gap:10px;margin-top:10px;">
+        <label><input type="checkbox" id="featPunch" /> Punch-in/out (non-destructive take segments)</label>
+        <label><input type="checkbox" id="featCrossfade" checked/> Crossfade loop wrap</label>
+        <label><input type="checkbox" id="featCountInOnRedo" checked/> Count-in on redo</label>
+        <label><input type="checkbox" id="featAutoCommit" /> Auto-commit after post-roll</label>
+        <label><input type="checkbox" id="featClickPrint" /> Option to print click into take</label>
+        <label><input type="checkbox" id="featLimiter" checked/> Limiter/soft-clip on commit</label>
+      </div>
+      <div style="margin-top:10px;color:#555;font-size:13px;">
+        (These don’t change behavior yet — they’re here so you can decide what the product should become.)
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  // ---------- UI ----------
+  const $ = (id) => document.getElementById(id);
+
+  const ui = {
+    bpm: $("bpm"),
+    beats: $("beats"),
+    preroll: $("preroll"),
+    postroll: $("postroll"),
+    quantize: $("quantize"),
+    routeClick: $("routeClick"),
+    mode: $("mode"),
+    keep: $("keep"),
+    add: $("add"),
+    undo: $("undo"),
+    autoRepeat: $("autoRepeat"),
+    start: $("start"),
+    commit: $("commit"),
+    redo: $("redo"),
+    stop: $("stop"),
+    audio: $("audio"),
+    vol: $("vol"),
+    status: $("status"),
+    pillState: $("pillState"),
+    pillTime: $("pillTime"),
+    progressFill: $("progressFill"),
+    mPreroll: $("mPreroll"),
+    mRecord: $("mRecord"),
+    mPostroll: $("mPostroll"),
+    mDecision: $("mDecision"),
+    log: $("log"),
+    clearLog: $("clearLog"),
+  };
+
+  function log(msg) {
+    const line = document.createElement("div");
+    const ts = new Date().toLocaleTimeString();
+    line.textContent = `[${ts}] ${msg}`;
+    ui.log.prepend(line);
+  }
+
+  function fmtMs(ms) {
+    const s = Math.floor(ms/1000);
+    const m = Math.floor(s/60);
+    const ss = String(s%60).padStart(2,"0");
+    const mm = String(m).padStart(2,"0");
+    const frac = String(Math.floor(ms%1000)).padStart(3,"0");
+    return `${mm}:${ss}.${frac}`;
+  }
+
+  // ---------- Audio click (optional) ----------
+  let ac = null;
+  function ensureAudio() {
+    if (!ui.audio.checked) return null;
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  }
+
+  function click(freq=1200, dur=0.03) {
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    g.gain.value = ui.vol.valueAsNumber;
+    o.frequency.value = freq;
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + dur);
+  }
+
+  // ---------- State machine ----------
+  const State = Object.freeze({
+    IDLE: "IDLE",
+    PREROLL: "PREROLL",
+    RECORD: "RECORD",
+    POSTROLL: "POSTROLL",
+    DECIDE: "DECIDE"
+  });
+
+  let state = State.IDLE;
+  let phaseStart = 0;     // performance.now() at phase start
+  let phaseDurMs = 0;     // duration in ms of current phase
+  let raf = null;
+  let beatIntervalMs = 0; // ms per beat
+  let beatCount = 0;      // beat index inside current phase
+
+  // "buffers" are conceptual here — we track passes and commit rules as metadata
+  let hasLoop = false;
+  let takesCommitted = 0;
+  let undoAvailable = false;
+
+  function compute() {
+    const bpm = ui.bpm.valueAsNumber;
+    beatIntervalMs = 60000 / bpm;
+    const prerollClicks = ui.preroll.valueAsNumber;
+    const beats = ui.beats.valueAsNumber;
+    const postrollClicks = ui.postroll.valueAsNumber;
+
+    return {
+      bpm,
+      beats,
+      prerollClicks,
+      postrollClicks,
+      prerollMs: prerollClicks * beatIntervalMs,
+      recordMs: beats * beatIntervalMs,
+      postrollMs: postrollClicks * beatIntervalMs,
+    };
+  }
+
+  function setState(next, durMs) {
+    state = next;
+    phaseStart = performance.now();
+    phaseDurMs = Math.max(0, durMs);
+    beatCount = 0;
+
+    ui.pillState.textContent = next;
+    ui.pillState.className = "pill";
+
+    ui.commit.disabled = (next !== State.DECIDE);
+    ui.redo.disabled = (next !== State.DECIDE);
+
+    updateMarkers();
+    renderStatus();
+    log(`→ ${next}`);
+  }
+
+  function updateMarkers() {
+    const c = compute();
+    ui.mPreroll.textContent = `${c.prerollClicks} clicks (${fmtMs(c.prerollMs)})`;
+    ui.mRecord.textContent = `${c.beats} beats (${fmtMs(c.recordMs)})`;
+    ui.mPostroll.textContent = `${c.postrollClicks} clicks (${fmtMs(c.postrollMs)})`;
+    ui.mDecision.textContent = `Commit applies: ${ui.mode.value === "sum" ? "loop + take" : `loop*${ui.keep.value} + take*${ui.add.value}`}`;
+  }
+
+  function renderStatus(extra="") {
+    const c = compute();
+    const clickRoute = ui.routeClick.checked ? "Click excluded from record" : "Click included in record";
+    const commitRule = ui.mode.value === "sum"
+      ? "Commit: loop = loop + take"
+      : `Commit: loop = loop*${Number(ui.keep.value).toFixed(2)} + take*${Number(ui.add.value).toFixed(2)}`;
+
+    ui.status.textContent =
+`State: ${state}
+Tempo: ${c.bpm} BPM  |  Beat: ${fmtMs(beatIntervalMs)}
+Loop length: ${c.beats} beats  (~${fmtMs(c.recordMs)})
+Preroll/Post: ${c.prerollClicks}/${c.postrollClicks} clicks
+Routing: ${clickRoute}
+${commitRule}
+Undo: ${ui.undo.checked ? "ON" : "OFF"}  |  Auto-repeat: ${ui.autoRepeat.checked ? "ON" : "OFF"}
+Loop exists: ${hasLoop ? "YES" : "NO"}  |  Takes committed: ${takesCommitted}
+${undoAvailable ? "Undo available (conceptual)" : ""}${extra ? "\n" + extra : ""}`;
+  }
+
+  function tick() {
+    const now = performance.now();
+    const elapsed = now - phaseStart;
+    const p = phaseDurMs > 0 ? Math.min(1, elapsed / phaseDurMs) : 0;
+    ui.progressFill.style.width = (p * 100).toFixed(1) + "%";
+    ui.pillTime.textContent = fmtMs(elapsed);
+
+    // Metronome click scheduling (simple: one click per beat boundary)
+    const beatsElapsed = Math.floor(elapsed / beatIntervalMs);
+    if (beatsElapsed > beatCount) {
+      // advance to new beat boundary(s)
+      for (let b = beatCount + 1; b <= beatsElapsed; b++) {
+        // Different click tone for downbeat feel (optional)
+        const isDown = (b % 4 === 1);
+        if (state === State.PREROLL || state === State.RECORD || state === State.POSTROLL) {
+          click(isDown ? 1600 : 1200, 0.028);
+        }
+      }
+      beatCount = beatsElapsed;
+    }
+
+    // Phase transitions
+    if (elapsed >= phaseDurMs) {
+      const c = compute();
+      if (state === State.PREROLL) {
+        setState(State.RECORD, c.recordMs);
+      } else if (state === State.RECORD) {
+        // If quantize on, we already used exact beat durations; if off, still fixed in this sim.
+        setState(State.POSTROLL, c.postrollMs);
+      } else if (state === State.POSTROLL) {
+        setState(State.DECIDE, 1); // decision phase has no time; keep tiny for UI
+        ui.progressFill.style.width = "100%";
+        ui.pillTime.textContent = "—";
+        renderStatus("Decision: Commit or Redo.");
+      } else if (state === State.DECIDE) {
+        // do nothing; waiting for user input
+      } else if (state === State.IDLE) {
+        // do nothing
+      }
+    }
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  function startCycle() {
+    const c = compute();
+    setState(State.PREROLL, c.prerollMs);
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+
+  function stopAll() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    state = State.IDLE;
+    ui.pillState.textContent = "IDLE";
+    ui.progressFill.style.width = "0%";
+    ui.pillTime.textContent = "00:00.000";
+    ui.commit.disabled = true;
+    ui.redo.disabled = true;
+    renderStatus("Reset.");
+    log("Stopped / Reset.");
+  }
+
+  function doCommit() {
+    // Conceptual commit: loop becomes loop + take (or feedback mix). We track commits count.
+    const mode = ui.mode.value;
+    const keep = ui.keep.valueAsNumber;
+    const add  = ui.add.valueAsNumber;
+
+    if (!hasLoop) {
+      hasLoop = true;
+      log(`Commit: First loop created (${compute().beats} beats).`);
+    } else {
+      log(`Commit: Overdub applied (${mode === "sum" ? "sum" : `keep=${keep.toFixed(2)}, add=${add.toFixed(2)}`}).`);
+    }
+    takesCommitted += 1;
+
+    undoAvailable = ui.undo.checked; // in real firmware, only if buffer/length allows
+    if (undoAvailable) log("Undo: available (single-level concept).");
+
+    setState(State.IDLE, 0);
+    ui.progressFill.style.width = "0%";
+    ui.pillTime.textContent = "00:00.000";
+    renderStatus("Committed. Ready.");
+
+    if (ui.autoRepeat.checked) {
+      // Immediately start next cycle (like “repeat/done” loop building)
+      startCycle();
+    }
+  }
+
+  function doRedo() {
+    log("Redo: take discarded.");
+    undoAvailable = false;
+    setState(State.IDLE, 0);
+    ui.progressFill.style.width = "0%";
+    ui.pillTime.textContent = "00:00.000";
+    renderStatus("Redo. Ready.");
+    if (ui.autoRepeat.checked) startCycle();
+  }
+
+  // ---------- Wiring ----------
+  ui.start.addEventListener("click", async () => {
+    ensureAudio(); // unlock audio
+    startCycle();
+  });
+
+  ui.commit.addEventListener("click", doCommit);
+  ui.redo.addEventListener("click", doRedo);
+
+  ui.stop.addEventListener("click", stopAll);
+
+  ui.clearLog.addEventListener("click", () => { ui.log.innerHTML = ""; });
+
+  // Re-render when settings change
+  [
+    ui.bpm, ui.beats, ui.preroll, ui.postroll, ui.quantize, ui.routeClick,
+    ui.mode, ui.keep, ui.add, ui.undo, ui.autoRepeat, ui.audio, ui.vol
+  ].forEach(el => el.addEventListener("input", () => {
+    updateMarkers();
+    renderStatus();
+  }));
+
+  // init
+  updateMarkers();
+  renderStatus();
+  log("Ready.");
+})();
+</script>
+</body>
+</html>
